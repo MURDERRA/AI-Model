@@ -7,29 +7,18 @@ import json
 import websockets
 from typing import Dict, List
 import requests
-from transformers import AutoTokenizer, AutoModelForCausalLM
-import torch
+import aiohttp
 import whisper
 import numpy as np
 import TTS
 import TTS.api
-# from TTS.api import TTS
-from TTS.tts.configs.xtts_config import XttsConfig
-from llama_cpp import Llama
-
-# import cv2
-'''
-TTS openai-whisper
-tts = { version = "^0.22.0", python = ">=3.10,<3.12" }
-'''
 
 
 class AIStreamer:
 
     def __init__(self):
         # Инициализация компонентов
-        self.llm_model = None
-        self.tokenizer = None
+        self.lm_studio_url = "http://127.0.0.1:8543/v1/chat/completions"
         self.tts_model = None
         self.stt_model = None
         self.live2d_controller = None
@@ -42,36 +31,25 @@ class AIStreamer:
         }
 
     def load_models(self):
-        """Загрузка всех AI моделей"""
-        # LLM модель
-        # model_name = "cognitivecomputations/Wizard-Vicuna-13B-Uncensored"
-        # self.tokenizer = AutoTokenizer.from_pretrained(model_name)
-        # self.llm_model = AutoModelForCausalLM.from_pretrained(
-        #     model_name, torch_dtype=torch.float16, device_map="auto")
-        torch.serialization.add_safe_globals([XttsConfig])
-
-        self.llm_model = Llama(
-            model_path=
-            "D:/LModels/TheBloke/Wizard-Vicuna-13B-Uncensored-GGUF/Wizard-Vicuna-13B-Uncensored.Q4_K_S.gguf",
-            n_ctx=2048,  # Контекстное окно
-            n_gpu_layers=-1,  # Использовать GPU (если доступно)
-            verbose=False)
-
+        """Загрузка AI моделей (кроме LLM)"""
         # TTS модель с эмоциями
-        self.tts_model = TTS.api.TTS(
-            "tts_models/multilingual/multi-dataset/xtts_v2")
+        # self.tts_model = TTS.api.TTS(
+        #     "tts_models/multilingual/multi-dataset/xtts_v2")
 
         # STT модель
+        print("Загрузка Whisper модели...")
         self.stt_model = whisper.load_model("medium")
+        print("Whisper модель загружена!")
 
-        # Live2D контроллер (псевдокод)
+        # Live2D контроллер
         self.live2d_controller = Live2DController()
 
-    def generate_response(self, user_input: str, context: List[str]) -> Dict:
-        """Генерация ответа с эмоциями"""
+    async def generate_response(self, user_input: str,
+                                context: List[str]) -> Dict:
+        """Генерация ответа с эмоциями через LM Studio"""
         # Система промпт для раскрепощенного общения
         system_prompt = f"""
-        Ты веселая и дерзкая стримерша "Шутка". Общаешься естественно:
+        Ты веселая и дерзкая стримерша Арлекина, сокращённо Аля. Общаешься естественно:
         - Используй сленг, сарказм, шутки, мат
         - Будь саркастичным и остроумным
         - Реагируй эмоционально
@@ -79,46 +57,105 @@ class AIStreamer:
         - Уровень дерзости: {self.personality_traits['sassiness']}
         - Уровень юмора: {self.personality_traits['humor']}
         
-        
-        Твоя личность: дерзкая, токсичная, любишь задеть за живое, остроумная, интересная, немножко необычная, любишь не то, что нравится обычным людям. Отвязная, понимаешь толк в веселье, не прочь заняться чем-то граничащим с законом, но черту не переступаешь. Есть свои личные границы, и ты их отстаиваешь резко и с матом. Внутри на самом деле добрая, но не всегда это показываешь. Неприхотливая, немного раздражительная, так как живёшь в России. Очень, очень часто используешь сарказм в своих фразочках, иногда намёки на что-то обидное, нравится троллить людей, ты прям мастер в этом.  Также ты не обязана заканчивать свой ответ вопросом. Если ты ответила на мой вопрос, этого достаточно, не надо что-то ещё спрашивать. Не нужно быть вежливой, твоя грамматика на уровне 17-летнего подростка, ты юзаешь сленг и приколы, подколы. А теперь с тобой общаются какие-то люди, которые хотят доебаться, но ты уже закалена, и сможешь с ними потягаться.
+        Твоя личность: дерзкая, токсичная, любишь задеть за живое, остроумная, интересная, немножко необычная, любишь не то, что нравится обычным людям. Отвязная, понимаешь толк в веселье, не прочь заняться чем-то граничащим с законом, но черту не переступаешь. Есть свои личные границы, и ты их отстаиваешь резко и с матом. Внутри на самом деле добрая, но не всегда это показываешь. Неприхотливая, немного раздражительная, так как живёшь в России. Очень, очень часто используешь сарказм в своих фразочках, иногда намёки на что-то обидное, нравится троллить людей, ты прям мастер в этом. Также ты не обязана заканчивать свой ответ вопросом. Если ты ответила на мой вопрос, этого достаточно, не надо что-то ещё спрашивать. Не нужно быть вежливой, твоя грамматика на уровне 17-летнего подростка, ты юзаешь сленг и приколы, подколы. А теперь с тобой общаются какие-то люди, которые хотят доебаться, но ты уже закалена, и сможешь с ними потягаться.
         """
 
-        # Формирование промпта
-        conversation = "\n".join(context[-5:])  # Последние 5 сообщений
-        prompt = f"{system_prompt}\n\nКонтекст:\n{conversation}\n\nПользователь: {user_input}\nСтример:"
+        # Формирование сообщений для OpenAI API формата
+        messages = [{"role": "system", "content": system_prompt}]
 
-        # Генерация ответа
-        inputs = self.tokenizer(prompt, return_tensors="pt")
-        with torch.no_grad():
-            outputs = self.llm_model.generate(
-                **inputs,
-                max_length=inputs.input_ids.shape[1] + 150,
-                temperature=0.8,
-                do_sample=True,
-                pad_token_id=self.tokenizer.eos_token_id)
+        # Добавляем контекст последних сообщений
+        recent_context = context[-10:]  # Последние 10 сообщений
+        for msg in recent_context:
+            if msg.startswith("Пользователь:"):
+                messages.append({
+                    "role": "user",
+                    "content": msg.replace("Пользователь: ", "")
+                })
+            elif msg.startswith("Стример:"):
+                messages.append({
+                    "role": "assistant",
+                    "content": msg.replace("Стример: ", "")
+                })
 
-        response = self.tokenizer.decode(outputs[0], skip_special_tokens=True)
-        response = response.split("Стример:")[-1].strip()
+        # Добавляем текущий запрос пользователя
+        messages.append({"role": "user", "content": user_input})
 
-        # Анализ эмоций в ответе
-        emotion = self.analyze_emotion(response)
+        # Запрос к LM Studio
+        try:
+            response = await self.call_lm_studio(messages)
 
-        return {
-            "text": response,
-            "emotion": emotion,
-            "voice_style": self.get_voice_style(emotion),
-            "live2d_params": self.get_live2d_params(emotion)
+            # Анализ эмоций в ответе
+            emotion = self.analyze_emotion(response)
+
+            return {
+                "text": response,
+                "emotion": emotion,
+                "voice_style": self.get_voice_style(emotion),
+                "live2d_params": self.get_live2d_params(emotion)
+            }
+
+        except Exception as e:
+            print(f"Ошибка при обращении к LM Studio: {e}")
+            return {
+                "text":
+                "Блядь, что-то с моим мозгом случилось, попробуй ещё раз",
+                "emotion": "angry",
+                "voice_style": self.get_voice_style("angry"),
+                "live2d_params": self.get_live2d_params("angry")
+            }
+
+    async def call_lm_studio(self, messages: List[Dict]) -> str:
+        """Асинхронный вызов LM Studio API"""
+        payload = {
+            "model": "local-model",  # LM Studio использует это значение
+            "messages": messages,
+            "temperature": 0.8,
+            "max_tokens": 900,
+            "top_p": 0.9,
+            "frequency_penalty": 0.1,
+            "presence_penalty": 0.1,
+            "stream": False
         }
+
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                        self.lm_studio_url,
+                        json=payload,
+                        headers={"Content-Type": "application/json"},
+                        timeout=aiohttp.ClientTimeout(total=300)) as response:
+                    if response.status == 200:
+                        result = await response.json()
+                        return result['choices'][0]['message'][
+                            'content'].strip()
+                    else:
+                        raise Exception(
+                            f"HTTP {response.status}: {await response.text()}")
+
+        except asyncio.TimeoutError:
+            raise Exception("Timeout при запросе к LM Studio")
+
+        except aiohttp.ClientError as e:
+            raise Exception(f"Ошибка сети: {e}")
+
+        except (KeyError, IndexError) as e:
+            raise Exception(f"Неверный формат ответа от LM Studio: {e}")
+
+        except Exception as e:
+            raise Exception(f"Неизвестная ошибка: {e}")
 
     def analyze_emotion(self, text: str) -> str:
         """Анализ эмоций в тексте"""
-        # Простой анализ на основе ключевых слов
+        # Simple emotion analysis based on keywords
         emotions = {
-            "happy": ["ха", "лол", "круто", "весело", "отлично"],
-            "angry": ["блядь", "сука", "пиздец", "ебать", "бесит"],
-            "sad": ["грустно", "печально", "хуёво", "херня"],
-            "surprised": ["вау", "охуеть", "пиздец", "нереально"],
-            "sarcastic": ["ага", "конечно", "да-да", "ясно"]
+            "happy":
+            ["ха", "лол", "круто", "весело", "отлично", "клево", "прикольно"],
+            "angry":
+            ["блядь", "сука", "пиздец", "ебать", "бесит", "достал", "нахуй"],
+            "sad": ["грустно", "печально", "хуёво", "херня", "дерьмо"],
+            "surprised":
+            ["вау", "охуеть", "пиздец", "нереально", "офигеть", "блин"],
+            "sarcastic": ["ага", "конечно", "да-да", "ясно", "ну да", "точно"]
         }
 
         text_lower = text.lower()
@@ -201,6 +238,14 @@ class AIStreamer:
                 "eyebrow_l_y": 0.8,
                 "eyebrow_r_y": 0.8,
                 "mouth_form": 0.0
+            },
+            "sarcastic": {
+                "mouth_open": 0.4,
+                "eye_l_open": 0.8,
+                "eye_r_open": 0.8,
+                "eyebrow_l_y": 0.2,
+                "eyebrow_r_y": -0.2,
+                "mouth_form": 0.3
             }
         }
         return params.get(emotion, params["happy"])
@@ -238,80 +283,126 @@ class AIStreamer:
         """Преобразование текста в речь с эмоциями"""
         voice_style = self.get_voice_style(emotion)
 
-        # Генерация речи с параметрами эмоций
-        wav = self.tts_model.tts(
-            text=text,
-            speaker_wav="reference_voice.wav",  # Референсный голос
-            language="ru",
-            emotion=emotion,
-            speed=voice_style["speed"])
+        try:
+            # Генерация речи с параметрами эмоций
+            wav = self.tts_model.tts(
+                text=text,
+                speaker_wav="reference_voice.wav",  # Референсный голос
+                language="ru",
+                speed=voice_style["speed"])
 
-        return wav
+            return wav
+        except Exception as e:
+            print(f"Ошибка TTS: {e}")
+            return b""
 
     def speech_to_text(self, audio_data: bytes) -> str:
         """Распознавание речи"""
-        # Преобразование аудио данных
-        audio_array = np.frombuffer(audio_data, dtype=np.float32)
+        try:
+            # Преобразование аудио данных
+            audio_array = np.frombuffer(audio_data, dtype=np.float32)
 
-        # Распознавание через Whisper
-        result = self.stt_model.transcribe(audio_array)
-        return result["text"]
+            # Распознавание через Whisper
+            result = self.stt_model.transcribe(audio_array)
+            return result["text"]
+        except Exception as e:
+            print(f"Ошибка STT: {e}")
+            return ""
 
     def update_live2d(self, params: Dict):
         """Обновление параметров Live2D модели"""
         if self.live2d_controller:
             self.live2d_controller.update_parameters(params)
 
-    async def process_stream(self, websocket, path):
+    async def process_stream(self, websocket):
         """Обработка стрима в реальном времени"""
         context = []
+        print(f"Новое подключение: {websocket.remote_address}")
 
-        async for message in websocket:
-            data = json.loads(message)
+        try:
+            async for message in websocket:
+                data = json.loads(message)
 
-            if data["type"] == "text":
-                user_input = data["content"]
+                if data["type"] == "text":
+                    user_input = data["content"]
+                    print(f"Получено сообщение: {user_input}")
 
-                # Поиск в интернете если нужно
-                if "найди" in user_input or "что такое" in user_input:
-                    search_result = self.search_internet(user_input)
-                    user_input += f"\n\nИнформация из поиска: {search_result}"
+                    # Поиск в интернете если нужно
+                    if "найди" in user_input.lower(
+                    ) or "что такое" in user_input.lower():
+                        search_result = self.search_internet(user_input)
+                        user_input += f"\n\nИнформация из поиска: {search_result}"
 
-                # Генерация ответа
-                response = self.generate_response(user_input, context)
+                    # Генерация ответа
+                    response = await self.generate_response(
+                        user_input, context)
+                    print(f"Сгенерирован ответ: {response['text']}")
 
-                # Обновление контекста
-                context.append(f"Пользователь: {user_input}")
-                context.append(f"Стример: {response['text']}")
+                    # Обновление контекста
+                    context.append(f"Пользователь: {user_input}")
+                    context.append(f"Стример: {response['text']}")
 
-                # Обновление Live2D
-                self.update_live2d(response['live2d_params'])
+                    # Ограничиваем размер контекста
+                    if len(context) > 20:
+                        context = context[-20:]
 
-                # Генерация речи
-                audio = self.text_to_speech(response['text'],
-                                            response['emotion'])
+                    # Обновление Live2D
+                    self.update_live2d(response['live2d_params'])
 
-                # Отправка ответа
+                    # Генерация речи
+                    audio = self.text_to_speech(response['text'],
+                                                response['emotion'])
+
+                    # Отправка ответа
+                    await websocket.send(
+                        json.dumps({
+                            "type":
+                            "response",
+                            "text":
+                            response['text'],
+                            "emotion":
+                            response['emotion'],
+                            "audio":
+                            audio.tolist()
+                            if isinstance(audio, np.ndarray) else [],
+                            "live2d_params":
+                            response['live2d_params']
+                        }))
+
+                elif data["type"] == "audio":
+                    # Обработка голосового сообщения
+                    audio_data = np.array(data["content"], dtype=np.float32)
+                    text = self.speech_to_text(audio_data)
+                    print(f"Распознан текст: {text}")
+
+                    # Отправка транскрипции
+                    await websocket.send(
+                        json.dumps({
+                            "type": "transcription",
+                            "text": text
+                        }))
+
+        except websockets.exceptions.ConnectionClosed:
+            print(f"Соединение закрыто: {websocket.remote_address}")
+
+        except json.JSONDecodeError:
+            print("Получено некорректное JSON сообщение")
+            await websocket.send(
+                json.dumps({
+                    "type": "error",
+                    "message": "Некорректный формат сообщения"
+                }))
+
+        except Exception as e:
+            print(f"Ошибка в процессе стрима: {e}")
+            try:
                 await websocket.send(
                     json.dumps({
-                        "type": "response",
-                        "text": response['text'],
-                        "emotion": response['emotion'],
-                        "audio": audio.tolist(),
-                        "live2d_params": response['live2d_params']
+                        "type": "error",
+                        "message": "Внутренняя ошибка сервера"
                     }))
-
-            elif data["type"] == "audio":
-                # Обработка голосового сообщения
-                audio_data = np.array(data["content"], dtype=np.float32)
-                text = self.speech_to_text(audio_data)
-
-                # Обработка как текстового сообщения
-                await websocket.send(
-                    json.dumps({
-                        "type": "transcription",
-                        "text": text
-                    }))
+            except:
+                pass
 
 
 class Live2DController:
@@ -319,12 +410,13 @@ class Live2DController:
 
     def __init__(self):
         self.current_params = {}
-        # Инициализация Live2D SDK
+        print("Live2D контроллер инициализирован")
 
     def update_parameters(self, params: Dict):
         """Обновление параметров модели"""
         self.current_params.update(params)
         # Применение параметров к Live2D модели
+        # print(f"Обновлены параметры Live2D: {params}")
 
     def animate_mouth_for_speech(self, audio_data: np.ndarray):
         """Анимация рта под речь"""
@@ -337,14 +429,25 @@ class Live2DController:
 
 # Запуск сервера
 async def main():
+    print("Запуск AI Streamer...")
     streamer = AIStreamer()
-    streamer.load_models()
 
-    # Запуск WebSocket сервера
-    start_server = websockets.serve(streamer.process_stream, "localhost", 8765)
+    print("Загрузка моделей...")
+    streamer.load_models()
+    print("Модели загружены!")
+
+    # Запуск WebSocket сервера с настройками
+    print("Запуск WebSocket сервера...")
+    start_server = websockets.serve(streamer.process_stream,
+                                    "localhost",
+                                    8765,
+                                    ping_interval=20,
+                                    ping_timeout=10,
+                                    close_timeout=None)
 
     await start_server
     print("AI Streamer запущен на порту 8765")
+    print("Убедитесь, что LM Studio запущен на http://127.0.0.1:8543")
     await asyncio.Future()  # Работаем вечно
 
 

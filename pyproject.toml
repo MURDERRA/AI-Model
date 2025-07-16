@@ -8,12 +8,16 @@ readme = "README.md"
 [tool.poetry.dependencies]
 python = "^3.10"
 requests = "^2.32.4"
-torch = "^2.7.1"
+torch = "^2.5.1"
+torchvision = "^0.20.1"
+torchaudio = "^2.5.1"
 numpy = { version = "^1.22.0", python = ">=3.10,<4.0" }
 tts = { version = "^0.22.0", python = ">=3.10,<3.12" }
 openai-whisper = "^20250625"
 llama-cpp-python = "^0.3.12"
 accelerate = "^1.8.1"
+pyaudio = "^0.2.14"
+aiohttp = "^3.12.14"
 
 
 [build-system]

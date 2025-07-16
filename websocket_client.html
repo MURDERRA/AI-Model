@@ -1,0 +1,669 @@
+<!DOCTYPE html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>AI Стример - Веб Клиент</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        max-width: 800px;
+        margin: 0 auto;
+        padding: 20px;
+        background: #1a1a1a;
+        color: #fff;
+        position: relative;
+      }
+
+      .personality-panel {
+        position: fixed;
+        top: 20px;
+        left: 20px;
+        width: 280px;
+        background: #333;
+        padding: 15px;
+        border-radius: 10px;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+        z-index: 1000;
+        max-height: 80vh;
+        overflow-y: auto;
+      }
+
+      .personality-panel h3 {
+        margin-top: 0;
+        margin-bottom: 15px;
+        color: #fff;
+        font-size: 1.1em;
+      }
+
+      .slider-group {
+        display: flex;
+        align-items: center;
+        margin: 12px 0;
+      }
+
+      .slider-group label {
+        width: 80px;
+        display: inline-block;
+        font-size: 0.9em;
+      }
+
+      .slider-group input[type="range"] {
+        flex: 1;
+        margin: 0 8px;
+      }
+
+      .slider-group span {
+        width: 35px;
+        text-align: center;
+        font-size: 0.9em;
+      }
+
+      .personality-panel button {
+        width: 100%;
+        padding: 8px;
+        margin-top: 10px;
+        border: none;
+        border-radius: 5px;
+        background: #0066cc;
+        color: #fff;
+        cursor: pointer;
+        font-size: 0.9em;
+      }
+
+      .personality-panel button:hover {
+        background: #0052a3;
+      }
+
+      .main-content {
+        margin-left: 0;
+        padding-left: 0;
+      }
+
+      .chat-container {
+        background: #2d2d2d;
+        border-radius: 10px;
+        padding: 20px;
+        margin: 20px 0;
+        height: 400px;
+        overflow-y: auto;
+      }
+
+      .message {
+        margin: 10px 0;
+        padding: 10px;
+        border-radius: 5px;
+        max-width: 70%;
+        word-wrap: break-word;
+      }
+
+      .user-message {
+        background: #0066cc;
+        margin-left: auto;
+        text-align: right;
+      }
+
+      .streamer-message {
+        background: #cc6600;
+        margin-right: auto;
+        text-align: left;
+      }
+
+      .system-message {
+        background: #555;
+        margin: 0 auto;
+        text-align: center;
+        max-width: 80%;
+        font-style: italic;
+      }
+
+      .emotion-tag {
+        font-size: 0.8em;
+        color: #ccc;
+        margin-left: 10px;
+      }
+
+      .controls {
+        display: flex;
+        gap: 10px;
+        margin: 20px 0;
+      }
+
+      .input-group {
+        flex: 1;
+        display: flex;
+        gap: 10px;
+      }
+
+      input[type="text"] {
+        flex: 1;
+        padding: 10px;
+        border: none;
+        border-radius: 5px;
+        background: #333;
+        color: #fff;
+        height: 30px;
+      }
+
+      button {
+        padding: 10px 20px;
+        border: none;
+        border-radius: 5px;
+        background: #0066cc;
+        color: #fff;
+        cursor: pointer;
+      }
+
+      button:hover {
+        background: #0052a3;
+      }
+
+      button:disabled {
+        background: #666;
+        cursor: not-allowed;
+      }
+
+      .recording {
+        background: #cc0000 !important;
+        animation: pulse 1s infinite;
+      }
+
+      @keyframes pulse {
+        0% {
+          opacity: 1;
+        }
+        50% {
+          opacity: 0.5;
+        }
+        100% {
+          opacity: 1;
+        }
+      }
+
+      .status {
+        padding: 10px;
+        border-radius: 5px;
+        margin: 10px 0;
+        text-align: center;
+      }
+
+      .status.connected {
+        background: #006600;
+      }
+
+      .status.disconnected {
+        background: #cc0000;
+      }
+
+      .quick-panel {
+        background: #333;
+        padding: 10px;
+        border-radius: 5px;
+        margin: 10px 0;
+        text-align: center;
+        transition: opacity 0.3s ease;
+      }
+
+      .quick-panel.hidden {
+        opacity: 0.3;
+        pointer-events: none;
+      }
+
+      .quick-panel h4 {
+        margin: 0 0 10px 0;
+      }
+
+      .quick-panel button {
+        margin: 5px;
+        padding: 5px 10px;
+        font-size: 0.9em;
+        background: #555;
+      }
+
+      /* Адаптивность для мобильных устройств */
+      @media (max-width: 768px) {
+        .personality-panel {
+          position: relative;
+          width: 100%;
+          margin-bottom: 20px;
+        }
+
+        .message {
+          max-width: 85%;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="personality-panel">
+      <h3>Настройки личности</h3>
+      <div class="slider-group">
+        <label>Дерзость:</label>
+        <input
+          type="range"
+          id="sassiness"
+          min="0"
+          max="1"
+          step="0.1"
+          value="0.8"
+        />
+        <span id="sassiness-value">0.8</span>
+      </div>
+      <div class="slider-group">
+        <label>Юмор:</label>
+        <input type="range" id="humor" min="0" max="1" step="0.1" value="0.9" />
+        <span id="humor-value">0.9</span>
+      </div>
+      <div class="slider-group">
+        <label>Мат:</label>
+        <input
+          type="range"
+          id="profanity"
+          min="0"
+          max="1"
+          step="0.1"
+          value="0.7"
+        />
+        <span id="profanity-value">0.7</span>
+      </div>
+      <div class="slider-group">
+        <label>Энергия:</label>
+        <input
+          type="range"
+          id="energy"
+          min="0"
+          max="1"
+          step="0.1"
+          value="0.8"
+        />
+        <span id="energy-value">0.8</span>
+      </div>
+      <button onclick="updatePersonality()">Обновить настройки</button>
+    </div>
+
+    <div class="main-content">
+      <h1>🎮 AI Стример - Веб Клиент</h1>
+
+      <div class="status" id="status">Подключение...</div>
+
+      <div class="chat-container" id="chatContainer">
+        <!-- Сообщения будут добавляться здесь -->
+      </div>
+
+      <div class="quick-panel" id="quickPanel">
+        <h4>Быстрые сообщения:</h4>
+        <button onclick="sendQuickMessage('Привет! Как дела?')">
+          Привет! Как дела?
+        </button>
+        <button onclick="sendQuickMessage('Расскажи анекдот')">
+          Расскажи анекдот
+        </button>
+        <button onclick="sendQuickMessage('Что думаешь о новых играх?')">
+          Что думаешь о новых играх?
+        </button>
+        <button onclick="sendQuickMessage('Найди последние новости')">
+          Найди последние новости
+        </button>
+        <button onclick="sendQuickMessage('Какая погода сегодня?')">
+          Какая погода сегодня?
+        </button>
+      </div>
+
+      <div class="controls">
+        <div class="input-group">
+          <input
+            type="text"
+            id="messageInput"
+            placeholder="Введите сообщение..."
+            onkeypress="handleKeyPress(event)"
+            oninput="handleInputChange()"
+          />
+          <button onclick="sendMessage()">Отправить</button>
+        </div>
+        <button id="voiceButton" onclick="toggleVoiceRecording()">
+          🎤 Голос
+        </button>
+      </div>
+    </div>
+
+    <script>
+      class StreamerWebClient {
+        constructor() {
+          this.ws = null;
+          this.conversationId = null;
+          this.isRecording = false;
+          this.mediaRecorder = null;
+          this.audioChunks = [];
+          this.personality = {
+            sassiness: 0.8,
+            humor: 0.9,
+            profanity: 0.7,
+            energy: 0.8,
+          };
+
+          this.setupPersonalitySliders();
+          this.connect();
+        }
+
+        setupPersonalitySliders() {
+          const sliders = ["sassiness", "humor", "profanity", "energy"];
+          sliders.forEach((slider) => {
+            const element = document.getElementById(slider);
+            const valueElement = document.getElementById(slider + "-value");
+
+            element.addEventListener("input", (e) => {
+              valueElement.textContent = e.target.value;
+              this.personality[slider] = parseFloat(e.target.value);
+            });
+          });
+        }
+
+        connect() {
+          try {
+            this.ws = new WebSocket("ws://localhost:8765");
+
+            this.ws.onopen = () => {
+              this.updateStatus("connected", "Подключено к стримеру");
+              this.startConversation();
+            };
+
+            this.ws.onmessage = (event) => {
+              const data = JSON.parse(event.data);
+              this.handleMessage(data);
+            };
+
+            this.ws.onclose = () => {
+              this.updateStatus("disconnected", "Отключено от стримера");
+              // Попытка переподключения через 3 секунды
+              setTimeout(() => this.connect(), 3000);
+            };
+
+            this.ws.onerror = (error) => {
+              console.error("WebSocket error:", error);
+              this.updateStatus("disconnected", "Ошибка подключения");
+            };
+          } catch (error) {
+            console.error("Connection error:", error);
+            this.updateStatus("disconnected", "Не удалось подключиться");
+          }
+        }
+
+        startConversation() {
+          const message = {
+            type: "start_conversation",
+            personality: this.personality,
+            timestamp: Date.now(),
+          };
+          this.ws.send(JSON.stringify(message));
+        }
+
+        updateStatus(status, message) {
+          const statusElement = document.getElementById("status");
+          statusElement.className = `status ${status}`;
+          statusElement.textContent = message;
+        }
+
+        handleMessage(data) {
+          switch (data.type) {
+            case "response":
+              this.addMessageToChat("streamer", data.text, data.emotion);
+              if (data.audio) {
+                this.playAudio(data.audio);
+              }
+              break;
+            case "transcription":
+              this.addMessageToChat("user", `🎤 ${data.text}`, "voice");
+              break;
+            case "error":
+              this.addMessageToChat(
+                "system",
+                `Ошибка: ${data.message}`,
+                "error"
+              );
+              break;
+          }
+        }
+
+        addMessageToChat(sender, text, emotion = "") {
+          const chatContainer = document.getElementById("chatContainer");
+          const messageDiv = document.createElement("div");
+          messageDiv.className = `message ${sender}-message`;
+
+          let emotionTag = "";
+          if (emotion && sender === "streamer") {
+            emotionTag = `<span class="emotion-tag">[${emotion}]</span>`;
+          }
+
+          messageDiv.innerHTML = `${text}${emotionTag}`;
+          chatContainer.appendChild(messageDiv);
+
+          // Автоскролл вниз
+          chatContainer.scrollTop = chatContainer.scrollHeight;
+        }
+
+        sendTextMessage(text) {
+          if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+            this.addMessageToChat("system", "Не подключен к серверу", "error");
+            return;
+          }
+
+          const message = {
+            type: "text",
+            content: text,
+            timestamp: Date.now(),
+          };
+
+          this.ws.send(JSON.stringify(message));
+          this.addMessageToChat("user", text);
+        }
+
+        async startVoiceRecording() {
+          try {
+            const stream = await navigator.mediaDevices.getUserMedia({
+              audio: true,
+            });
+
+            this.mediaRecorder = new MediaRecorder(stream, {
+              mimeType: MediaRecorder.isTypeSupported("audio/webm")
+                ? "audio/webm"
+                : "audio/ogg",
+            });
+
+            this.audioChunks = [];
+
+            this.mediaRecorder.ondataavailable = (event) => {
+              if (event.data.size > 0) {
+                this.audioChunks.push(event.data);
+              }
+            };
+
+            this.mediaRecorder.onstop = async () => {
+              try {
+                const audioBlob = new Blob(this.audioChunks, {
+                  type: this.mediaRecorder.mimeType,
+                });
+
+                await this.processAudioBlob(audioBlob);
+
+                // Остановка всех треков
+                stream.getTracks().forEach((track) => track.stop());
+              } catch (error) {
+                console.error("Error processing audio:", error);
+                this.addMessageToChat(
+                  "system",
+                  "Ошибка обработки аудио",
+                  "error"
+                );
+              }
+            };
+
+            this.mediaRecorder.onerror = (error) => {
+              console.error("MediaRecorder error:", error);
+              this.addMessageToChat("system", "Ошибка записи аудио", "error");
+            };
+
+            this.mediaRecorder.start(1000); // Собирать данные каждую секунду
+            this.isRecording = true;
+
+            const voiceButton = document.getElementById("voiceButton");
+            voiceButton.textContent = "🛑 Стоп";
+            voiceButton.classList.add("recording");
+          } catch (error) {
+            console.error("Error starting recording:", error);
+            this.addMessageToChat(
+              "system",
+              "Ошибка доступа к микрофону",
+              "error"
+            );
+          }
+        }
+
+        stopVoiceRecording() {
+          if (this.mediaRecorder && this.isRecording) {
+            this.mediaRecorder.stop();
+            this.isRecording = false;
+
+            const voiceButton = document.getElementById("voiceButton");
+            voiceButton.textContent = "🎤 Голос";
+            voiceButton.classList.remove("recording");
+          }
+        }
+
+        async processAudioBlob(audioBlob) {
+          try {
+            if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+              this.addMessageToChat(
+                "system",
+                "Не подключен к серверу",
+                "error"
+              );
+              return;
+            }
+
+            // Конвертация в массив для отправки
+            const arrayBuffer = await audioBlob.arrayBuffer();
+            const audioContext = new (window.AudioContext ||
+              window.webkitAudioContext)();
+            const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+
+            // Получение данных канала
+            const audioData = audioBuffer.getChannelData(0);
+
+            const message = {
+              type: "audio",
+              content: Array.from(audioData),
+              sample_rate: audioBuffer.sampleRate,
+              timestamp: Date.now(),
+            };
+
+            this.ws.send(JSON.stringify(message));
+            this.addMessageToChat(
+              "user",
+              "🎤 Обрабатывается аудио...",
+              "voice"
+            );
+          } catch (error) {
+            console.error("Error processing audio blob:", error);
+            this.addMessageToChat("system", "Ошибка обработки аудио", "error");
+          }
+        }
+
+        playAudio(audioArray) {
+          try {
+            const audioContext = new (window.AudioContext ||
+              window.webkitAudioContext)();
+            const audioBuffer = audioContext.createBuffer(
+              1,
+              audioArray.length,
+              22050
+            );
+            const channelData = audioBuffer.getChannelData(0);
+
+            for (let i = 0; i < audioArray.length; i++) {
+              channelData[i] = audioArray[i];
+            }
+
+            const source = audioContext.createBufferSource();
+            source.buffer = audioBuffer;
+            source.connect(audioContext.destination);
+            source.start();
+          } catch (error) {
+            console.error("Error playing audio:", error);
+          }
+        }
+
+        updatePersonality() {
+          if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+            this.addMessageToChat("system", "Не подключен к серверу", "error");
+            return;
+          }
+
+          const message = {
+            type: "update_personality",
+            personality: this.personality,
+            timestamp: Date.now(),
+          };
+
+          this.ws.send(JSON.stringify(message));
+          this.addMessageToChat(
+            "system",
+            "Настройки личности обновлены",
+            "info"
+          );
+        }
+      }
+
+      // Глобальные функции для HTML
+      let client;
+
+      window.onload = () => {
+        client = new StreamerWebClient();
+      };
+
+      function sendMessage() {
+        const input = document.getElementById("messageInput");
+        const text = input.value.trim();
+
+        if (text) {
+          client.sendTextMessage(text);
+          input.value = "";
+          handleInputChange(); // Обновить состояние панели
+        }
+      }
+
+      function handleKeyPress(event) {
+        if (event.key === "Enter") {
+          sendMessage();
+        }
+      }
+
+      function handleInputChange() {
+        const input = document.getElementById("messageInput");
+        const quickPanel = document.getElementById("quickPanel");
+
+        if (input.value.trim()) {
+          quickPanel.classList.add("hidden");
+        } else {
+          quickPanel.classList.remove("hidden");
+        }
+      }
+
+      function toggleVoiceRecording() {
+        if (client.isRecording) {
+          client.stopVoiceRecording();
+        } else {
+          client.startVoiceRecording();
+        }
+      }
+
+      function updatePersonality() {
+        client.updatePersonality();
+      }
+
+      function sendQuickMessage(text) {
+        document.getElementById("messageInput").value = text;
+        sendMessage();
+      }
+    </script>
+  </body>
+</html>

@@ -14,6 +14,7 @@ class StreamerClient:
         self.websocket = None
         self.audio_queue = queue.Queue()
         self.is_recording = False
+        self.is_running = True
 
     async def connect(self):
         """Подключение к серверу"""
@@ -21,6 +22,7 @@ class StreamerClient:
             self.websocket = await websockets.connect(self.server_url)
             print("Подключено к AI-стримеру!")
             return True
+
         except Exception as e:
             print(f"Ошибка подключения: {e}")
             return False
@@ -58,11 +60,27 @@ class StreamerClient:
     async def listen_for_responses(self):
         """Прослушивание ответов от сервера"""
         try:
-            async for message in self.websocket:
-                data = json.loads(message)
-                await self.handle_response(data)
-        except websockets.exceptions.ConnectionClosed:
-            print("Соединение закрыто")
+            while self.is_running and self.websocket:
+                try:
+                    # Используем recv() с таймаутом вместо async for
+                    message = await asyncio.wait_for(
+                        self.websocket.recv(),
+                        timeout=
+                        0.1  # Небольшой таймаут для неблокирующего чтения
+                    )
+                    data = json.loads(message)
+                    await self.handle_response(data)
+
+                except asyncio.TimeoutError:
+                    # Таймаут - это нормально, просто продолжаем
+                    continue
+                except websockets.exceptions.ConnectionClosed:
+                    print("Соединение закрыто")
+                    break
+                except json.JSONDecodeError as e:
+                    print(f"Ошибка декодирования JSON: {e}")
+                    continue
+
         except Exception as e:
             print(f"Ошибка при получении ответа: {e}")
 
@@ -83,6 +101,9 @@ class StreamerClient:
 
         elif data["type"] == "transcription":
             print(f"🎤 Распознано: {data['text']}")
+
+        else:
+            print(f"Не распознано: {data}")
 
     def play_audio(self, audio_data: np.ndarray):
         """Воспроизведение аудио"""
@@ -113,7 +134,7 @@ class StreamerClient:
         p = pyaudio.PyAudio()
         stream = p.open(format=pyaudio.paFloat32,
                         channels=1,
-                        rate=16000,
+                        rate=22050,
                         input=True,
                         frames_per_buffer=1024)
 
@@ -133,6 +154,11 @@ class StreamerClient:
             self.audio_queue.put(audio_data)
             print("🎤 Запись завершена")
 
+    async def get_user_input(self):
+        """Асинхронное получение пользовательского ввода"""
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, input, "\nВы: ")
+
     async def interactive_chat(self):
         """Интерактивный чат с стримером"""
         print("\n=== AI Стример Чат ===")
@@ -142,19 +168,22 @@ class StreamerClient:
         print("  Любой текст - отправка текстового сообщения")
         print("========================\n")
 
-        while True:
+        while self.is_running:
             try:
-                user_input = input("\nВы: ").strip()
+                # Используем executor для неблокирующего ввода
+                user_input = await self.get_user_input()
+                user_input = user_input.strip()
 
                 if user_input == "/quit":
+                    self.is_running = False
                     break
                 elif user_input == "/voice":
                     print("Нажмите Enter для начала записи...")
-                    input()
+                    await self.get_user_input()
                     self.start_voice_recording()
 
                     print("Говорите... (Enter для остановки)")
-                    input()
+                    await self.get_user_input()
                     self.stop_voice_recording()
 
                     # Ждем завершения записи
@@ -168,6 +197,7 @@ class StreamerClient:
                     await self.send_text_message(user_input)
 
             except KeyboardInterrupt:
+                self.is_running = False
                 break
             except Exception as e:
                 print(f"Ошибка: {e}")
@@ -177,24 +207,30 @@ class StreamerClient:
         if not await self.connect():
             return
 
-        # Запуск прослушивания в фоне
-        listen_task = asyncio.create_task(self.listen_for_responses())
+        try:
+            # Запуск прослушивания в фоне
+            listen_task = asyncio.create_task(self.listen_for_responses())
 
-        # Запуск интерактивного чата
-        chat_task = asyncio.create_task(self.interactive_chat())
+            # Запуск интерактивного чата
+            await self.interactive_chat()
 
-        # Ожидание завершения любой из задач
-        done, pending = await asyncio.wait([listen_task, chat_task],
-                                           return_when=asyncio.FIRST_COMPLETED)
+            # Завершение работы
+            self.is_running = False
+            listen_task.cancel()
 
-        # Отмена оставшихся задач
-        for task in pending:
-            task.cancel()
+            try:
+                await listen_task
+            except asyncio.CancelledError:
+                pass
 
-        if self.websocket:
-            await self.websocket.close()
+        except KeyboardInterrupt:
+            print("\nПрерывание...")
+            self.is_running = False
 
-        print("Отключено от стримера")
+        finally:
+            if self.websocket:
+                await self.websocket.close()
+            print("Отключено от стримера")
 
 
 # Простой клиент для быстрого тестирования
@@ -226,7 +262,7 @@ class SimpleClient:
     async def quick_test(self):
         """Быстрый тест"""
         messages = [
-            "Привет! Как дела?", "Расскажи шутку", "Банан или огурец?"
+            "Арлекина, любишь сосиски?", "Расскажи шутку", "Банан или огурец?"
             # "Найди информацию о последних новостях игровой индустрии"
         ]
 
