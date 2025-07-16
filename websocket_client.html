@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>AI Стример - Веб Клиент</title>
+    <title>Arlekina AI - Веб Клиент</title>
     <style>
       body {
         font-family: Arial, sans-serif;
@@ -282,7 +282,7 @@
     </div>
 
     <div class="main-content">
-      <h1>🎮 AI Стример - Веб Клиент</h1>
+      <h1>🎮Arlekina AI - Веб Клиент</h1>
 
       <div class="status" id="status">Подключение...</div>
 
@@ -363,7 +363,7 @@
             this.ws = new WebSocket("ws://localhost:8765");
 
             this.ws.onopen = () => {
-              this.updateStatus("connected", "Подключено к стримеру");
+              this.updateStatus("connected", "Подключено к LLM");
               this.startConversation();
             };
 
@@ -373,7 +373,7 @@
             };
 
             this.ws.onclose = () => {
-              this.updateStatus("disconnected", "Отключено от стримера");
+              this.updateStatus("disconnected", "Отключено от LLM");
               // Попытка переподключения через 3 секунды
               setTimeout(() => this.connect(), 3000);
             };

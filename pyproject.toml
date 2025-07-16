@@ -11,8 +11,8 @@ requests = "^2.32.4"
 torch = "^2.5.1"
 torchvision = "^0.20.1"
 torchaudio = "^2.5.1"
+coqui-tts = { version = "^0.27.0", python = ">=3.10,<3.13" }
 numpy = { version = "^1.22.0", python = ">=3.10,<4.0" }
-tts = { version = "^0.22.0", python = ">=3.10,<3.12" }
 openai-whisper = "^20250625"
 llama-cpp-python = "^0.3.12"
 accelerate = "^1.8.1"

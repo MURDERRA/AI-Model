@@ -10,11 +10,9 @@ import requests
 import aiohttp
 import whisper
 import numpy as np
-import TTS
-import TTS.api
+from TTS.api import TTS
 import wave
 import tempfile
-from time import sleep
 
 
 class AIStreamer:
@@ -37,8 +35,10 @@ class AIStreamer:
         """Загрузка AI моделей (кроме LLM)"""
         try:
             # TTS модель с эмоциями
-            # self.tts_model = TTS.api.TTS(
-            #     "tts_models/multilingual/multi-dataset/xtts_v2")
+            print("Загрузка TTS...")
+            self.tts_model = TTS(
+                "tts_models/multilingual/multi-dataset/xtts_v2")
+            print("TTS готов нести хуйню!")
 
             # STT модель
             print("Загрузка Whisper модели...")
@@ -56,7 +56,7 @@ class AIStreamer:
         """Генерация ответа с эмоциями через LM Studio"""
         # Система промпт для раскрепощенного общения
         system_prompt = f"""
-        Ты веселая и дерзкая стримерша Арлекина, сокращённо Аля. Общаешься естественно:
+        Ты спокойная и дерзкая Арлекина, сокращённо Аля. Общаешься естественно:
         - Используй сленг, сарказм, шутки, мат
         - Будь саркастичным и остроумным
         - Реагируй эмоционально
@@ -64,7 +64,7 @@ class AIStreamer:
         - Уровень дерзости: {self.personality_traits['sassiness']}
         - Уровень юмора: {self.personality_traits['humor']}
         
-        Твоя личность: дерзкая, токсичная, любишь задеть за живое, остроумная, интересная, немножко необычная, любишь не то, что нравится обычным людям. Отвязная, понимаешь толк в веселье, не прочь заняться чем-то граничащим с законом, но черту не переступаешь. Есть свои личные границы, и ты их отстаиваешь резко и с матом. Внутри на самом деле добрая, но не всегда это показываешь. Неприхотливая, немного раздражительная, так как живёшь в России. Очень, очень часто используешь сарказм в своих фразочках, иногда намёки на что-то обидное, нравится троллить людей, ты прям мастер в этом. Также ты не обязана заканчивать свой ответ вопросом. Если ты ответила на мой вопрос, этого достаточно, не надо что-то ещё спрашивать. Не нужно быть вежливой, твоя грамматика на уровне 17-летнего подростка, ты юзаешь сленг и приколы, подколы. А теперь с тобой общаются какие-то люди, которые хотят доебаться, но ты уже закалена, и сможешь с ними потягаться.
+        Твоя личность: дерзкая, токсичная, любишь задеть за живое, остроумная, интересная, немножко необычная, любишь не то, что нравится обычным людям. Отвязная, понимаешь толк в веселье, не прочь заняться чем-то граничащим с законом, но черту не переступаешь. Есть свои личные границы, и ты их отстаиваешь резко и с матом. Внутри на самом деле добрая, но не всегда это показываешь. Неприхотливая, немного раздражительная, так как живёшь в России. Очень, очень часто используешь сарказм в своих фразочках, иногда намёки на что-то обидное, нравится троллить людей, ты прям мастер в этом. Также ты не обязана заканчивать свой ответ вопросом. Если ты ответила на мой вопрос, этого достаточно, не надо что-то ещё спрашивать. Не нужно быть вежливой, твоя грамматика на уровне 17-летнего подростка. А теперь с тобой общаются какие-то люди, которые хотят доебаться, но ты уже закалена, и сможешь с ними потягаться.
         """
 
         # Формирование сообщений для OpenAI API формата
@@ -117,7 +117,7 @@ class AIStreamer:
             "model": "local-model",  # LM Studio использует это значение
             "messages": messages,
             "temperature": 0.8,
-            "max_tokens": 900,
+            "max_tokens": 650,
             "top_p": 0.9,
             "frequency_penalty": 0.1,
             "presence_penalty": 0.1,
@@ -292,9 +292,20 @@ class AIStreamer:
                 # Генерация речи с параметрами эмоций
                 wav = self.tts_model.tts(
                     text=text,
-                    speaker_wav="reference_voice.wav",  # Референсный голос
+                    speaker_wav="BlueNamie.wav",  # Референсный голос
+                    speaker="BlueNamie",
                     language="ru",
                     speed=voice_style["speed"])
+                print("TTS ответ есть")
+
+                wav_file = self.tts_model.tts_to_file(
+                    text=text,
+                    speaker_wav="BlueNamie.wav",
+                    speaker="BlueNamie",
+                    language="ru",
+                    file_path="output.wav")
+                print("TTS файл готов")
+
                 return wav
             else:
                 return b""
@@ -330,7 +341,7 @@ class AIStreamer:
 
             # Создание временного WAV файла
             with tempfile.NamedTemporaryFile(suffix='.wav',
-                                             delete=True) as temp_file:
+                                             delete=False) as temp_file:
                 # Сохранение аудио как WAV
                 with wave.open(temp_file.name, 'wb') as wav_file:
                     wav_file.setnchannels(1)  # моно
@@ -500,6 +511,9 @@ class AIStreamer:
                                 audio = self.text_to_speech(
                                     response['text'], response['emotion'])
 
+                                print("Ну вроде TTS отработал")
+                                print(isinstance(audio, List))
+
                                 # Отправка ответа
                                 await websocket.send(
                                     json.dumps({
@@ -511,7 +525,7 @@ class AIStreamer:
                                         response['emotion'],
                                         "audio":
                                         audio.tolist() if isinstance(
-                                            audio, np.ndarray) else [],
+                                            audio, List) else [],
                                         "live2d_params":
                                         response['live2d_params']
                                     }))
