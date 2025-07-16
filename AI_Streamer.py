@@ -12,6 +12,9 @@ import whisper
 import numpy as np
 import TTS
 import TTS.api
+import wave
+import tempfile
+from time import sleep
 
 
 class AIStreamer:
@@ -32,17 +35,21 @@ class AIStreamer:
 
     def load_models(self):
         """Загрузка AI моделей (кроме LLM)"""
-        # TTS модель с эмоциями
-        # self.tts_model = TTS.api.TTS(
-        #     "tts_models/multilingual/multi-dataset/xtts_v2")
+        try:
+            # TTS модель с эмоциями
+            # self.tts_model = TTS.api.TTS(
+            #     "tts_models/multilingual/multi-dataset/xtts_v2")
 
-        # STT модель
-        print("Загрузка Whisper модели...")
-        self.stt_model = whisper.load_model("medium")
-        print("Whisper модель загружена!")
+            # STT модель
+            print("Загрузка Whisper модели...")
+            self.stt_model = whisper.load_model("medium")
+            print("Whisper модель загружена!")
 
-        # Live2D контроллер
-        self.live2d_controller = Live2DController()
+            # Live2D контроллер
+            self.live2d_controller = Live2DController()
+
+        except Exception as e:
+            print(f"Ошибка загрузки моделей: {e}")
 
     async def generate_response(self, user_input: str,
                                 context: List[str]) -> Dict:
@@ -134,13 +141,10 @@ class AIStreamer:
 
         except asyncio.TimeoutError:
             raise Exception("Timeout при запросе к LM Studio")
-
         except aiohttp.ClientError as e:
             raise Exception(f"Ошибка сети: {e}")
-
         except (KeyError, IndexError) as e:
             raise Exception(f"Неверный формат ответа от LM Studio: {e}")
-
         except Exception as e:
             raise Exception(f"Неизвестная ошибка: {e}")
 
@@ -284,29 +288,78 @@ class AIStreamer:
         voice_style = self.get_voice_style(emotion)
 
         try:
-            # Генерация речи с параметрами эмоций
-            wav = self.tts_model.tts(
-                text=text,
-                speaker_wav="reference_voice.wav",  # Референсный голос
-                language="ru",
-                speed=voice_style["speed"])
+            if self.tts_model:
+                # Генерация речи с параметрами эмоций
+                wav = self.tts_model.tts(
+                    text=text,
+                    speaker_wav="reference_voice.wav",  # Референсный голос
+                    language="ru",
+                    speed=voice_style["speed"])
+                return wav
+            else:
+                return b""
 
-            return wav
         except Exception as e:
             print(f"Ошибка TTS: {e}")
             return b""
 
-    def speech_to_text(self, audio_data: bytes) -> str:
-        """Распознавание речи"""
+    def speech_to_text(self,
+                       audio_data: np.ndarray,
+                       sample_rate: int = 16000) -> str:
+        """Распознавание речи с улучшенной обработкой"""
         try:
-            # Преобразование аудио данных
-            audio_array = np.frombuffer(audio_data, dtype=np.float32)
+            print(
+                f"Начинаю распознавание аудио, размер: {len(audio_data)}, sample_rate: {sample_rate}"
+            )
 
-            # Распознавание через Whisper
-            result = self.stt_model.transcribe(audio_array)
-            return result["text"]
+            # Проверка на валидность аудио данных
+            if len(audio_data) == 0:
+                print("Пустые аудио данные")
+                return ""
+
+            # Нормализация аудио
+            if np.max(np.abs(audio_data)) > 0:
+                audio_data = audio_data / np.max(np.abs(audio_data))
+
+            # Конвертация sample rate если нужно
+            if sample_rate != 16000:
+                # Простая ресемплинг (для более точного используйте librosa)
+                from scipy import signal
+                audio_data = signal.resample(
+                    audio_data, int(len(audio_data) * 16000 / sample_rate))
+
+            # Создание временного WAV файла
+            with tempfile.NamedTemporaryFile(suffix='.wav',
+                                             delete=True) as temp_file:
+                # Сохранение аудио как WAV
+                with wave.open(temp_file.name, 'wb') as wav_file:
+                    wav_file.setnchannels(1)  # моно
+                    wav_file.setsampwidth(2)  # 16-bit
+                    wav_file.setframerate(16000)
+
+                    # Конвертация в int16
+                    audio_int16 = (audio_data * 32767).astype(np.int16)
+                    wav_file.writeframes(audio_int16.tobytes())
+
+                # Распознавание через Whisper
+                print("Запуск Whisper...")
+                result = self.stt_model.transcribe(temp_file.name,
+                                                   language='ru',
+                                                   verbose=True)
+
+                # Удаление временного файла
+                # sleep(2)
+                # os.unlink(temp_file.name)
+
+                transcribed_text = result["text"].strip()
+                # print(f"Распознанный текст: '{transcribed_text}'")
+
+                return transcribed_text
+
         except Exception as e:
             print(f"Ошибка STT: {e}")
+            import traceback
+            traceback.print_exc()
             return ""
 
     def update_live2d(self, params: Dict):
@@ -314,95 +367,208 @@ class AIStreamer:
         if self.live2d_controller:
             self.live2d_controller.update_parameters(params)
 
-    async def process_stream(self, websocket):
+    async def process_stream(self, websocket, path=None):
         """Обработка стрима в реальном времени"""
         context = []
         print(f"Новое подключение: {websocket.remote_address}")
 
         try:
             async for message in websocket:
-                data = json.loads(message)
+                try:
+                    data = json.loads(message)
+                    print(
+                        f"Получено сообщение типа: {data.get('type', 'unknown')}"
+                    )
 
-                if data["type"] == "text":
-                    user_input = data["content"]
-                    print(f"Получено сообщение: {user_input}")
+                    if data["type"] == "start_conversation":
+                        # Обновление настроек личности
+                        if "personality" in data:
+                            self.personality_traits.update(data["personality"])
 
-                    # Поиск в интернете если нужно
-                    if "найди" in user_input.lower(
-                    ) or "что такое" in user_input.lower():
-                        search_result = self.search_internet(user_input)
-                        user_input += f"\n\nИнформация из поиска: {search_result}"
+                        await websocket.send(
+                            json.dumps({
+                                "type": "status",
+                                "message": "Разговор начат"
+                            }))
 
-                    # Генерация ответа
-                    response = await self.generate_response(
-                        user_input, context)
-                    print(f"Сгенерирован ответ: {response['text']}")
+                    elif data["type"] == "update_personality":
+                        # Обновление настроек личности
+                        if "personality" in data:
+                            self.personality_traits.update(data["personality"])
+                            print(
+                                f"Обновлены настройки личности: {self.personality_traits}"
+                            )
 
-                    # Обновление контекста
-                    context.append(f"Пользователь: {user_input}")
-                    context.append(f"Стример: {response['text']}")
+                    elif data["type"] == "text":
+                        user_input = data["content"]
+                        print(f"Получено текстовое сообщение: {user_input}")
 
-                    # Ограничиваем размер контекста
-                    if len(context) > 20:
-                        context = context[-20:]
+                        # Поиск в интернете если нужно
+                        if "найди" in user_input.lower(
+                        ) or "что такое" in user_input.lower():
+                            search_result = self.search_internet(user_input)
+                            user_input += f"\n\nИнформация из поиска: {search_result}"
 
-                    # Обновление Live2D
-                    self.update_live2d(response['live2d_params'])
+                        # Генерация ответа
+                        response = await self.generate_response(
+                            user_input, context)
+                        print(f"Сгенерирован ответ: {response['text']}")
 
-                    # Генерация речи
-                    audio = self.text_to_speech(response['text'],
-                                                response['emotion'])
+                        # Обновление контекста
+                        context.append(f"Пользователь: {user_input}")
+                        context.append(f"Стример: {response['text']}")
 
-                    # Отправка ответа
+                        # Ограничиваем размер контекста
+                        if len(context) > 20:
+                            context = context[-20:]
+
+                        # Обновление Live2D
+                        self.update_live2d(response['live2d_params'])
+
+                        # Генерация речи
+                        audio = self.text_to_speech(response['text'],
+                                                    response['emotion'])
+
+                        # Отправка ответа
+                        await websocket.send(
+                            json.dumps({
+                                "type":
+                                "response",
+                                "text":
+                                response['text'],
+                                "emotion":
+                                response['emotion'],
+                                "audio":
+                                audio.tolist() if isinstance(
+                                    audio, np.ndarray) else [],
+                                "live2d_params":
+                                response['live2d_params']
+                            }))
+
+                    elif data["type"] == "audio":
+                        print("Получено аудио сообщение")
+                        try:
+                            # Получение аудио данных
+                            audio_data = np.array(data["content"],
+                                                  dtype=np.float32)
+                            sample_rate = data.get("sample_rate", 16000)
+
+                            print(
+                                f"Аудио данные: длина={len(audio_data)}, sample_rate={sample_rate}"
+                            )
+
+                            # Проверка валидности аудио
+                            if len(audio_data) == 0:
+                                await websocket.send(
+                                    json.dumps({
+                                        "type": "error",
+                                        "message": "Пустые аудио данные"
+                                    }))
+                                continue
+
+                            # Распознавание речи
+                            text = self.speech_to_text(audio_data, sample_rate)
+                            print(f"Распознанный текст: '{text}'")
+
+                            if text.strip():
+                                # Отправка транскрипции
+                                await websocket.send(
+                                    json.dumps({
+                                        "type": "transcription",
+                                        "text": text
+                                    }))
+
+                                # Автоматическая обработка как текстового сообщения
+                                response = await self.generate_response(
+                                    text, context)
+                                print(
+                                    f"Сгенерирован ответ на голос: {response['text']}"
+                                )
+
+                                # Обновление контекста
+                                context.append(f"Пользователь: {text}")
+                                context.append(f"Стример: {response['text']}")
+
+                                # Ограничиваем размер контекста
+                                if len(context) > 20:
+                                    context = context[-20:]
+
+                                # Обновление Live2D
+                                self.update_live2d(response['live2d_params'])
+
+                                # Генерация речи
+                                audio = self.text_to_speech(
+                                    response['text'], response['emotion'])
+
+                                # Отправка ответа
+                                await websocket.send(
+                                    json.dumps({
+                                        "type":
+                                        "response",
+                                        "text":
+                                        response['text'],
+                                        "emotion":
+                                        response['emotion'],
+                                        "audio":
+                                        audio.tolist() if isinstance(
+                                            audio, np.ndarray) else [],
+                                        "live2d_params":
+                                        response['live2d_params']
+                                    }))
+                            else:
+                                await websocket.send(
+                                    json.dumps({
+                                        "type":
+                                        "error",
+                                        "message":
+                                        "Не удалось распознать речь"
+                                    }))
+
+                        except Exception as e:
+                            print(f"Ошибка обработки аудио: {e}")
+                            import traceback
+                            traceback.print_exc()
+                            await websocket.send(
+                                json.dumps({
+                                    "type":
+                                    "error",
+                                    "message":
+                                    f"Ошибка обработки аудио: {str(e)}"
+                                }))
+
+                    else:
+                        print(
+                            f"Неизвестный тип сообщения: {data.get('type', 'unknown')}"
+                        )
+
+                except json.JSONDecodeError as e:
+                    print(f"Ошибка парсинга JSON: {e}")
                     await websocket.send(
                         json.dumps({
-                            "type":
-                            "response",
-                            "text":
-                            response['text'],
-                            "emotion":
-                            response['emotion'],
-                            "audio":
-                            audio.tolist()
-                            if isinstance(audio, np.ndarray) else [],
-                            "live2d_params":
-                            response['live2d_params']
+                            "type": "error",
+                            "message": "Некорректный формат сообщения"
                         }))
 
-                elif data["type"] == "audio":
-                    # Обработка голосового сообщения
-                    audio_data = np.array(data["content"], dtype=np.float32)
-                    text = self.speech_to_text(audio_data)
-                    print(f"Распознан текст: {text}")
+                except Exception as e:
+                    print(f"Ошибка обработки сообщения: {e}")
+                    import traceback
+                    traceback.print_exc()
+                    try:
+                        await websocket.send(
+                            json.dumps({
+                                "type": "error",
+                                "message": f"Ошибка обработки: {str(e)}"
+                            }))
 
-                    # Отправка транскрипции
-                    await websocket.send(
-                        json.dumps({
-                            "type": "transcription",
-                            "text": text
-                        }))
+                    except:
+                        pass
 
         except websockets.exceptions.ConnectionClosed:
             print(f"Соединение закрыто: {websocket.remote_address}")
-
-        except json.JSONDecodeError:
-            print("Получено некорректное JSON сообщение")
-            await websocket.send(
-                json.dumps({
-                    "type": "error",
-                    "message": "Некорректный формат сообщения"
-                }))
-
         except Exception as e:
             print(f"Ошибка в процессе стрима: {e}")
-            try:
-                await websocket.send(
-                    json.dumps({
-                        "type": "error",
-                        "message": "Внутренняя ошибка сервера"
-                    }))
-            except:
-                pass
+            import traceback
+            traceback.print_exc()
 
 
 class Live2DController:
@@ -438,17 +604,25 @@ async def main():
 
     # Запуск WebSocket сервера с настройками
     print("Запуск WebSocket сервера...")
-    start_server = websockets.serve(streamer.process_stream,
-                                    "localhost",
-                                    8765,
-                                    ping_interval=20,
-                                    ping_timeout=10,
-                                    close_timeout=None)
+    start_server = websockets.serve(
+        streamer.process_stream,
+        "localhost",
+        8765,
+        ping_interval=30,
+        ping_timeout=20,
+        close_timeout=10,
+        max_size=100**7,  # 100MB для больших аудио сообщений
+        write_limit=100**7)
 
     await start_server
     print("AI Streamer запущен на порту 8765")
     print("Убедитесь, что LM Studio запущен на http://127.0.0.1:8543")
-    await asyncio.Future()  # Работаем вечно
+
+    # Держим сервер запущенным
+    try:
+        await asyncio.Future()  # Работаем вечно
+    except KeyboardInterrupt:
+        print("Сервер остановлен")
 
 
 if __name__ == "__main__":
