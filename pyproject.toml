@@ -18,6 +18,9 @@ llama-cpp-python = "^0.3.12"
 accelerate = "^1.8.1"
 pyaudio = "^0.2.14"
 aiohttp = "^3.12.14"
+python-decouple = "^3.8"
+loguru = "^0.7.3"
+telethon = "^1.40.0"
 
 
 [build-system]

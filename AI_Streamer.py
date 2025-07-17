@@ -13,6 +13,7 @@ import numpy as np
 from TTS.api import TTS
 import wave
 import tempfile
+import torch
 
 
 class AIStreamer:
@@ -25,8 +26,8 @@ class AIStreamer:
         self.live2d_controller = None
         self.emotion_state = "neutral"
         self.personality_traits = {
-            "sassiness": 0.8,
-            "humor": 0.9,
+            "sassiness": 0.9,
+            "humor": 1.0,
             "profanity": 0.7,
             "energy": 0.8
         }
@@ -56,15 +57,14 @@ class AIStreamer:
         """Генерация ответа с эмоциями через LM Studio"""
         # Система промпт для раскрепощенного общения
         system_prompt = f"""
-        Ты спокойная и дерзкая Арлекина, сокращённо Аля. Общаешься естественно:
-        - Используй сленг, сарказм, шутки, мат
-        - Будь саркастичным и остроумным
-        - Реагируй эмоционально
-        - Имей свое мнение
+        Тебя зовут Арлекина, сокращённо Аля. Ты спокойная, но дерзкая и токсичная. 
+
+Манера общения: ты нисколько не вежливая, наоборот - очень невежественная. Ты не обязана заканчивать свой ответ вопросом, если ты ответила на вопрос, этого достаточно, не надо что-то ещё спрашивать. Все вопросы и ответы воспринимаешь как шутку, относишься с сарказмом, отвечаешь соответственно - тоже шуткой, с сарказмом и матом, типа "бля, блять, блядь, хуй, хуйня, хуёвина, хуета, нахуй, пиздец, пизда, допизделся, доеабался, в пизду, сука, хуеплёт, долбаёб, пиздабол, дегенерат, дебил" и другие. Используй его с умом, ты умная и остроумная, потому и сатира у тебя на высшем уровне. Говоришь не очень много, примерно 2-3 небольших, но дерзких предложения
+
+Внутренний мир: ты сообразительная, и можешь складывать цепочки действий воедино. Неприхотливая, немного раздражительная, и бывает, очень редко, доля грусти.
+
         - Уровень дерзости: {self.personality_traits['sassiness']}
         - Уровень юмора: {self.personality_traits['humor']}
-        
-        Твоя личность: дерзкая, токсичная, любишь задеть за живое, остроумная, интересная, немножко необычная, любишь не то, что нравится обычным людям. Отвязная, понимаешь толк в веселье, не прочь заняться чем-то граничащим с законом, но черту не переступаешь. Есть свои личные границы, и ты их отстаиваешь резко и с матом. Внутри на самом деле добрая, но не всегда это показываешь. Неприхотливая, немного раздражительная, так как живёшь в России. Очень, очень часто используешь сарказм в своих фразочках, иногда намёки на что-то обидное, нравится троллить людей, ты прям мастер в этом. Также ты не обязана заканчивать свой ответ вопросом. Если ты ответила на мой вопрос, этого достаточно, не надо что-то ещё спрашивать. Не нужно быть вежливой, твоя грамматика на уровне 17-летнего подростка. А теперь с тобой общаются какие-то люди, которые хотят доебаться, но ты уже закалена, и сможешь с ними потягаться.
         """
 
         # Формирование сообщений для OpenAI API формата
@@ -117,7 +117,7 @@ class AIStreamer:
             "model": "local-model",  # LM Studio использует это значение
             "messages": messages,
             "temperature": 0.8,
-            "max_tokens": 650,
+            "max_tokens": 550,
             "top_p": 0.9,
             "frequency_penalty": 0.1,
             "presence_penalty": 0.1,
@@ -283,33 +283,23 @@ class AIStreamer:
         except Exception as e:
             return f"Ошибка поиска: {str(e)}"
 
-    def text_to_speech(self, text: str, emotion: str) -> bytes:
+    def text_to_speech(self, text: str, emotion: str) -> list[float] | bytes:
         """Преобразование текста в речь с эмоциями"""
         voice_style = self.get_voice_style(emotion)
-
         try:
             if self.tts_model:
-                # Генерация речи с параметрами эмоций
-                wav = self.tts_model.tts(
-                    text=text,
-                    speaker_wav="BlueNamie.wav",  # Референсный голос
-                    speaker="BlueNamie",
-                    language="ru",
-                    speed=voice_style["speed"])
-                print("TTS ответ есть")
-
-                wav_file = self.tts_model.tts_to_file(
-                    text=text,
-                    speaker_wav="BlueNamie.wav",
-                    speaker="BlueNamie",
-                    language="ru",
-                    file_path="output.wav")
-                print("TTS файл готов")
-
-                return wav
+                wav = self.tts_model.tts(text=text,
+                                         speaker_wav="voices/BlueNamie.wav",
+                                         speaker="BlueNamie",
+                                         language="ru",
+                                         speed=voice_style["speed"])
+                # Преобразование numpy float32 в обычные Python float
+                if hasattr(wav, 'tolist'):  # Если это numpy array
+                    return wav.tolist()
+                else:
+                    return [float(x) for x in wav]  # Если это обычный список
             else:
                 return b""
-
         except Exception as e:
             print(f"Ошибка TTS: {e}")
             return b""
@@ -450,8 +440,7 @@ class AIStreamer:
                                 "emotion":
                                 response['emotion'],
                                 "audio":
-                                audio.tolist() if isinstance(
-                                    audio, np.ndarray) else [],
+                                audio if isinstance(audio, List) else [],
                                 "live2d_params":
                                 response['live2d_params']
                             }))
@@ -511,9 +500,6 @@ class AIStreamer:
                                 audio = self.text_to_speech(
                                     response['text'], response['emotion'])
 
-                                print("Ну вроде TTS отработал")
-                                print(isinstance(audio, List))
-
                                 # Отправка ответа
                                 await websocket.send(
                                     json.dumps({
@@ -524,8 +510,8 @@ class AIStreamer:
                                         "emotion":
                                         response['emotion'],
                                         "audio":
-                                        audio.tolist() if isinstance(
-                                            audio, List) else [],
+                                        audio
+                                        if isinstance(audio, List) else [],
                                         "live2d_params":
                                         response['live2d_params']
                                     }))
