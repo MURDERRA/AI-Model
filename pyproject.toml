@@ -21,6 +21,10 @@ aiohttp = "^3.12.14"
 python-decouple = "^3.8"
 loguru = "^0.7.3"
 telethon = "^1.40.0"
+transformers = "^4.53.2"
+peft = "^0.16.0"
+datasets = "^4.0.0"
+sentencepiece = "^0.2.0"
 
 
 [build-system]
